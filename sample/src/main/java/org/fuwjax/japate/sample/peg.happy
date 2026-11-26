@@ -1,0 +1,258 @@
+(^# Context includes a Grammar as a top level datum^)
+(^=Expression^)
+(^regex^)Pattern pattern(^id^) = Pattern.compile("(^regex^)");(^/^)
+    private T parse(^id^)() throws ParseException {
+(^>class.simpleName^)
+    }
+(^*expr^)(^>Expression^)(^/^)
+(^*exprs^)(^>Expression^)(^/^)
+(^/^)
+
+(^=ReferenceExpression^) (^#name^)
+        Memo memo = getMemo("(^name^)")
+        if(memo != null) {
+            return memo.result();
+        }
+        Mark mark = mark();
+        try {
+            T result = parse(^name^)();
+            saveMemo("(^name^)", mark, result, null).result();
+            return result;
+        } catch(ParseException e) {
+            saveMemo("(^name^)", mark, null, e);
+            throw e;
+        }
+(^/^)
+
+(^=SequenceExpression^) (^#exprs^)
+        List<T> results = new ArrayList<>();
+        (^*exprs^)
+        results.add(parse(^id^)());
+        (^/^)
+        return handler.success(results);
+(^/^)
+
+(^=AlternativeExpression^) (^#exprs^)
+        Mark mark = mark();
+        List<ParseException> fails = new ArrayList<>();
+        (^*exprs^)
+        try {
+            return parse(^id^)();
+        } catch(ParseException e) {
+            reset(mark);
+            fails.add(e);
+        }
+        (^/^)
+        throw new ParseException(fails);
+(^/^)
+
+(^=RepeatingExpression^) (^#expr^)
+        List<T> results = new ArrayList<>();
+        Mark mark;
+        do {
+            mark = mark();
+            try {
+                results.add(parse(^expr.id^)());
+            } catch(ParseException e) {
+                reset(mark);
+            }
+        } while(mark != mark());
+        return handler.success(results);
+(^/^)
+
+(^=RequiredExpression^) (^#expr^)
+        Mark mark = mark();
+        T first = parse(^expr.id^)();
+        if(mark == mark()) { // zero-length match
+            return first;
+        })
+        List<T> results = new ArrayList<>();
+        multi.add(first);
+        do {
+            mark = mark();
+            try {
+                results.add(parse(^expr.id^)());
+            } catch(ParseException e) {
+                reset(mark);
+            }
+        } while(mark != mark());
+        return handler.success(results);
+(^/^)
+
+(^=OptionalExpression^) (^#expr^)
+        Mark mark = mark();
+        try {
+            return parse(^expr.id^)();
+        } catch(ParseException e) {
+            reset(mark);
+            return handler.success();
+        }
+(^/^)
+
+(^=NegativeLookaheadExpression^) (^#expr^)
+        Mark mark = mark();
+        try {
+            parse(^expr.id^)();
+        } catch(ParseException e) {
+            return handler.success();
+        } finally {
+            reset(mark);
+        }
+        throw new ParseException("Lookahead found what it never wanted");
+(^/^)
+
+(^=PositiveLookaheadExpression^) (^#expr^)
+        Mark mark = mark();
+        try {
+            parse(^expr.id^)();
+            return handler.success();
+        } finally {
+            reset(mark);
+        }
+(^/^)
+
+(^=LiteralExpression^) (^#literal^)
+        Mark start = mark();
+        String lit = "(^literal^)";
+        String match = "";
+        while(lit.startsWith(match)) {
+            if(lit.equals(match)) {
+                return handler.success(match);
+            }
+            next();
+            match = start.substring();
+        }
+        throw new ParseException("Expected " + lit + ", but found " + match + " instead");
+(^/^)
+
+(^=PatternExpression^) (^#regex^)
+        String ch = accept();
+        Matcher match = pattern(^id^).matcher(ch);
+        if(!match.matches()) {
+            throw new ParseException("(^regex^) does not match '" + ch + "'");
+        }
+        return handler.success(match.group());
+(^/^)
+
+(^=DotExpression^) (^#regex^)
+        return handler.success(accept());
+(^/^)
+
+public class (^name^)Parser<T> {
+    private final BreakIterator iter = BreakIterator.getCharacterInstance();
+    private final String input;
+    private final Map<NameAt, Memo> memos = new HashMap<>();
+    private final ParseSuccess<T> handler;
+    private Mark current;
+
+    public (^name^)Parser(ParseSuccess<T> handler, String input) {
+        this.handler = handler;
+        this.input = input;
+        iter.setText(input);
+        current = new Mark(iter.first(), 1, 1);
+    }
+
+    protected Mark mark() {
+        return current;
+    }
+
+    protected void reset(Mark mark) {
+        this.current = mark;
+        iter.following(mark.pos);
+    }
+
+    protected void next() throws ParseException {
+        current = current.next();
+    }
+
+    protected String accept() throws ParseException {
+        Mark start = current;
+        next();
+        return start.substring();
+    }
+
+    protected Memo getMemo(String name) {
+        return memos.get(new NameAt(name, current.pos));
+    }
+
+    protected Object saveMemo(String name, Mark at, T result, ParseException err) {
+        Memo memo = new Memo(name, result, err, mark());
+        memos.put(new NameAt(name, at.pos), memo);
+    }
+
+    private record Mark(int pos, int line, int column) {
+        public Mark next() throws ParseException {
+            int next = iter.next();
+            if(next == BreakIterator.DONE) {
+                throw new ParseException("attempted read past end of input");
+            }
+            if (next < input.length() && input.charAt(next) == '\n') {
+                return new Mark(next, line + 1, 1);
+            } else {
+                return new Mark(next, line, column + 1);
+            }
+        }
+
+        public String substring() throws ParseException {
+            return input.substring(pos, current.pos);
+        }
+
+        public String location() {
+            if(pos == BreakIterator.DONE) {
+                return "at "+line+":"+column+" [EOF]";
+            }
+            return "at "+line+":"+column+" ["+pos+"]";
+        }
+    }
+
+    private class ParseException extends Exception {
+        private Mark mark;
+        public ParseException(String message) {
+            super(message + " " + current.location());
+            mark = mark();
+        }
+
+        public ParseException(List<ParseException> causes) {
+            ParseException furthest = causes.get(1);
+            for(ParseException cause: causes) {
+                if(furthest.mark.pos < cause.mark.pos) {
+                    furthest = cause;
+                }
+            }
+            mark = furthest.mark;
+            setMessage("failures in all "+causes.size()+" alternatives, deepest match is");
+            setCause(furthest);
+        }
+    }
+
+    private static record NameAt(String name, int pos) {}
+
+    public record Memo(Sring name, T result, ParseException err, Mark end) {
+        public T result() throws ParseException {
+            if(err != null) {
+                throw err;
+            }
+            reset(end);
+            return result;
+        }
+    }
+
+    public interface ParseSuccess<T> {
+        T success(String name, T result);
+        T success(String value);
+        T success(Iterable<T> results);
+        T success();
+    }
+
+    (^*rules^) (^# each Rule contains name, expr^)
+    public T parse(^name^)() throws ParseException {
+        T result = parse(^expr.id^)();
+        return handler.success("(^name^)", result);
+    }
+
+    (^*expr^)(^>Expression^)(^/^)
+    (^/^)
+}
+
+
+
